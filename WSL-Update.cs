@@ -53,6 +53,7 @@ namespace WSL_Update
 
         private static void Tick(object? sender, EventArgs e)
         {
+            Runner.OutputDataReceived -= OutputDataReceived;
             Timer.Stop();
             Runner.Kill();
             MessageBox.Show(HelpMsg, Caption);
