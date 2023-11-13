@@ -1,82 +1,39 @@
-using Microsoft.Win32.TaskScheduler;
-using System;
 using System.Diagnostics;
-using System.IO;
-using System.Linq;
 using System.Reflection;
-using System.Windows.Forms;
+using System.Text;
+using Microsoft.Win32.TaskScheduler;
 
-namespace WSL_Update
+if (!string.IsNullOrEmpty(Run($"/bin/sh -c \"echo '{Run("whoami")} ALL=NOPASSWD:/usr/bin/apt,/usr/bin/do-release-upgrade' | sudo EDITOR='tee -a' visudo\"")))
 {
-    static class Program
+    TaskService Service = new();
+    var Task = Service.NewTask();
+    Task.Triggers.Add(new WeeklyTrigger());
+    Task.Actions.Add("wsl", "-d Ubuntu sudo apt update && sudo apt dist-upgrade -y && sudo apt autoremove -y && sudo do-release-upgrade");
+    Task.Settings.StartWhenAvailable = true;
+    Task.Settings.Hidden = true;
+    Service.RootFolder.RegisterTaskDefinition(Assembly.GetEntryAssembly()!.GetName().Name!, Task);
+}
+else
+    throw new UnauthorizedAccessException();
+
+string? Run(string Arguments)
+{
+    StringBuilder Result = new();
+    Process Runner = new()
     {
-        const string ProcName = "wsl";
-        const string Parms =
-            "sudo apt update && " +
-            "sudo apt dist-upgrade -y && " +
-            "sudo apt autoremove -y && " +
-            "sudo do-release-upgrade";
-        const string HelpMsg =
-            "sudo visudo\n" +
-            "\n" +
-            "#user\n" +
-            "user ALL=NOPASSWD: /usr/bin/apt,/usr/bin/do-release-upgrade";
-        readonly static string Caption = Assembly.GetEntryAssembly()!.GetName().Name!;
-        static readonly Process Runner = new()
+        StartInfo = new ProcessStartInfo("wsl", "-d Ubuntu " + Arguments)
         {
-            StartInfo = new(ProcName, Parms)
-            {
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-            },
-            EnableRaisingEvents = true,
-        };
-        static readonly Timer Timer = new() { Interval = 13 * 1000 };
-
-        [STAThread]
-        static void Main()
-        {
-            Application.SetHighDpiMode(HighDpiMode.SystemAware);
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
-
-            if (Process.GetProcessesByName(ProcName).Any())
-                return;
-            Runner.OutputDataReceived += OutputDataReceived;
-            Timer.Tick += Tick;
-
-            Runner.Start();
-            Runner.BeginOutputReadLine();
-            Timer.Start();
-            Application.Run();
-        }
-
-        private static void Tick(object? sender, EventArgs e)
-        {
-            Timer.Stop();
-            Runner.Kill();
-            MessageBox.Show(HelpMsg, Caption);
-            Application.Exit();
-        }
-
-        static void Exited(object? sender, EventArgs e)
-        {
-#if RELEASE
-            TaskService Service = new();
-            var Definition = Service.NewTask();
-            Definition.Triggers.Add(new WeeklyTrigger());
-            Definition.Actions.Add(Path.ChangeExtension(Environment.GetCommandLineArgs()[0], "exe"));
-            Definition.Settings.StartWhenAvailable = true;
-            Service.RootFolder.RegisterTaskDefinition(Caption, Definition);
-#endif
-            Application.Exit();
-        }
-
-        static void OutputDataReceived(object? sender, DataReceivedEventArgs e)
-        {
-            Timer.Stop();
-            Runner.Exited += Exited;
-            Runner.OutputDataReceived -= OutputDataReceived;
-        }
-    }
+            UseShellExecute = false,
+            RedirectStandardOutput = true
+        }!
+    };
+    Runner.OutputDataReceived += (object sender, DataReceivedEventArgs e) =>
+    {
+        if (e.Data is not null)
+            Result.Append(e.Data);
+    };
+    Runner.Start();
+    Runner.BeginOutputReadLine();
+    Runner.WaitForExit();
+    return Result.ToString();
 }
